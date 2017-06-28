@@ -1,0 +1,15 @@
+base
+randomForest
+foreach
+iterators
+doMC
+lattice
+ggplot2
+caret
+AppliedPredictiveModeling
+rattle
+rpart
+rpart.plot
+survival
+gbm
+plyr
