@@ -1,0 +1,105 @@
+---
+title: "Practical Machine Learning - Prediction Assignment"
+output:
+  html_document: default
+  html_notebook: default
+---
+#Background
+
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement – a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. In this project, your goal will be to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. More information is available from the website here: http://groupware.les.inf.puc-rio.br/har (see the section on the Weight Lifting Exercise Dataset).
+
+#Data
+The training data for this project are available here:
+https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv
+
+The test data are available here:
+https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv
+
+The data for this project come from this source: http://groupware.les.inf.puc-rio.br/har. If you use the document you create for this class for any purpose please cite them as they have been very generous in allowing their data to be used for this kind of assignment.
+
+#Goal of project
+The goal of your project is to predict the manner in which they did the exercise. This is the "classe" variable in the training set. You may use any of the other variables to predict with. You should create a report describing how you built your model, how you used cross validation, what you think the expected out of sample error is, and why you made the choices you did. You will also use your prediction model to predict 20 different test cases.
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(cache=TRUE)
+```
+```{r load them libraries, include=FALSE}
+library(randomForest)
+library(doMC)
+library(caret)
+library(AppliedPredictiveModeling)
+library(rattle)
+library(rpart.plot)
+
+```
+
+```{r Cleaning the data}
+#Multithread this
+doMC::registerDoMC(cores=4)
+download.file("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv", "~/workspace/Practical Machine Learning/pml-training.csv")
+download.file("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv", "~/workspace/Practical Machine Learning/pml-testing.csv")
+training <- read.csv("~/workspace/Practical Machine Learning/pml-training.csv", na.strings = c("NA","#DIV/0", ""))
+testing <- read.csv("~/workspace/Practical Machine Learning/pml-testing.csv", na.strings=c("NA", "#DIV/0",""))
+##Remove unnecessary variables.
+training <- training[,-c(1:7)]
+zeroVars <- nearZeroVar(training, saveMetrics=T)
+training <- training[,!zeroVars$nzv]
+
+testing<- testing[,-c(1:7)]
+testing<- testing[,!zeroVars$nzv]
+
+##Lets see how many NA values we have
+naPercent <- sapply(training, function(y) sum(length(which(is.na(y))))/nrow(training))
+training <- training[,naPercent < 0.9]
+testing <- testing[,naPercent < 0.9]
+training$classe <- as.factor(training$classe)
+
+inTrain <- createDataPartition(training$classe, p=0.6, list=FALSE)
+myTraining <- training[inTrain, ]
+myTesting <- training[-inTrain, ]
+```
+
+```{r}
+set.seed(5)
+#Try with rpart
+rpartModFit <- train(classe~., method="rpart", data=myTraining)
+rpartPred <- predict(rpartModFit, myTraining)
+rpartCm <- confusionMatrix(rpartPred, myTraining$classe)
+plot(rpartCm$table, col=rpartCm$byClass, main=paste("RPart Confusion Matrix: Accuracy = ", round(rpartCm$overall['Accuracy'], 4)))
+```
+
+The Rpart prediction model did not fit well into our data, and it looks like theres a high sample error rate (51%). Let's try fitting another model on the data to see how the predicitons look.
+
+```{r}
+set.seed(5)
+#Try with randomForest
+rfModFit <- randomForest(classe~., data=myTraining)
+rfPred <- predict(rfModFit, myTraining)
+rfCm <- confusionMatrix(rfPred, myTraining$classe)
+plot(rfCm$table, col=rfCm$byClass, main=paste("Random Forest Confusion Matrix: Accuracy = ", round(rfCm$overall['Accuracy'], 4)))
+```
+
+Using random forests for the method seems to lower our sample error down dramatically. Our sample error rate is 0, but thats likely because of overfitting. Let's see if generalized boosted regression will also be a good model for our data.
+
+```{r}
+set.seed(5)
+#Try with gbm
+control <- trainControl(method="repeatedcv", number=4, repeats=1)
+gbmModFit <- train(classe~., method="gbm", data=myTraining, trControl=control)
+gbmPred <- predict(gbmModFit, myTraining)
+(gbmCm <- confusionMatrix(gbmPred, myTraining$classe))
+plot(gbmCm$table, col=gbmCm$byClass, main=paste("RPart Confusion Matrix: Accuracy = ", round(gbmCm$overall['Accuracy'], 4)))
+```
+
+GBM provides a pretty low sample error rate (only 2.7%). Moving forward, I plan to use random forests to cross validate against the test set. Depending on how it does,  I can make a decision on how overfitted the model is.
+
+```{r}
+rfPredTest<- predict(rfModFit, myTesting)
+confusionMatrix(rfPredTest, myTesting$classe)
+```
+
+Even after cross validation, we still see a very low sample error.  Lets predict the 20 test variables.
+
+```{r}
+rfPredTest<- predict(rfModFit, testing)
+rfPredTest
+```
